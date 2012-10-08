@@ -265,8 +265,8 @@ function drush_buck_create() {
     // This is a normal site with non-local code, database, and media files.
     else {
       buck_get_git($site_record);
-      buck_get_files($site_record);
-      buck_import_database($site_record);
+    //  buck_get_files($site_record);
+      //buck_import_database($site_record);
     }
     // Add vhost.
     buck_create_apache($site_record);

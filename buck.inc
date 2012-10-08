@@ -61,11 +61,12 @@ function buck_fixpath($pathin) {
  * @param <type> $domain the domain to DNS
  * @param <type> $params
  */
-function buck_create_dns($domain) {
+function buck_create_dns($site_record) {
+  $domain = $site_record['domain'];
   $file = file_get_contents("/etc/hosts");
   // make sure to test for fully spaces parsed domain in hosts file.
   // otherwise shortened partial domains will throw an exception.
-  $domainplus = " " . $domain . " ";
+  $domainplus = " " . $site_record['domain'] . " ";
   if (!strpos($file, $domainplus)) {
     drush_log("Creating DNS config (add $domain to /etc/hosts) ...", 'ok');
     buck_shell_exec("echo '127.0.0.1 $domain #' | sudo tee -a /etc/hosts");
@@ -82,7 +83,8 @@ function buck_create_dns($domain) {
  * @param <type> $domain
  * @param <type> $params
  */
-function buck_destroy_dns($domain, $params) {
+function buck_destroy_dns($site_record) {
+  $domain = $site_record['domain'];
   buck_shell_exec("sudo sed -i \"/ $domain .*#/d\" /etc/hosts");
 }
 
@@ -91,33 +93,26 @@ function buck_destroy_dns($domain, $params) {
  * This is the virtual hosts template file for the apache functions.
  */
 define('BUCK_APACHE_TEMPLATE', "
+<Directory #CODEPATH#>
+  Options FollowSymLinks
+  AllowOverride None
+
+  RewriteEngine On
+  RewriteBase /
+
+  # Rewrite URLs of the form 'index.php?q=x'.
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(.*)$ index.php?q=$1 [L,QSA]
+</Directory>
+
 <VirtualHost *:80>
   ServerName #DOMAIN#
-  ServerAlias *.#DOMAIN#
   DocumentRoot #CODEPATH#
-  <Directory #CODEPATH#>
-    Options Indexes FollowSymLinks MultiViews
-    AllowOverride All
-    Order allow,deny
-    allow from all
-  </Directory>
+  LogLevel warn
+  ServerSignature Off
 </VirtualHost>
-<IfModule mod_ssl.c>
-  <VirtualHost *:443>
-    ServerName #DOMAIN#
-    ServerAlias *.#DOMAIN#
-    DocumentRoot #CODEPATH#
-    <Directory #CODEPATH#>
-      Options Indexes FollowSymLinks MultiViews
-      AllowOverride All
-      Order allow,deny
-      allow from all
-    </Directory>
-    SSLEngine on
-    SSLCertificateFile    /etc/ssl/certs/ssl-cert-snakeoil.pem
-    SSLCertificateKeyFile /etc/ssl/private/ssl-cert-snakeoil.key
-  </VirtualHost>
-</IfModule>");
+");
 
 /**
  * Configure apache virtualhost file using the template.
@@ -214,7 +209,7 @@ function buck_create_root($site_record) {
   if (file_exists($codepath)) {
     if (file_exists($oldpath)) {
       drush_log("Removing existing directory $oldpath", "ok");
-      drush_shell_exec("rm -rf $oldpath");
+      drush_shell_exec("sudo rm -rf $oldpath");
       drush_log("... done", "ok");
     }
     drush_log("Moving existing directory $codepath to $oldpath", "ok");
@@ -239,6 +234,7 @@ function buck_get_git($site_record) {
   // Install git.
   if (isset($site_record['git'])) {
     $command = 'git clone ' . $site_record['git'] . ' ' . $site_record['root'];
+
     drush_log('Downloading code to ' . $site_record['root'] . ' (takes a minute, check network activity) ...', 'ok');
     if (!system($command)) {
       return drush_set_error('DRUSH_PM_GIT_CHECKOUT_PROBLEMS', dt('Unable to clone project.'));
@@ -260,6 +256,7 @@ function buck_profile_site_install($site_record) {
     #"--db-prefix=" . $params['db-prefix'],
     "--account-name=admin",
     "--account-pass=admin",
+    "-v",
     #"--site-name=" . $params['site-name'],
     #"--site-mail=" . $params['site-mail'],
     #"--sites-subdir=" . $params['sites-subdir'],
@@ -268,7 +265,7 @@ function buck_profile_site_install($site_record) {
   drush_invoke_process(
     drush_sitealias_get_record('@self'),
     'site-install',
-    array($params['profile']),
+    array($site_record['profile']),
     $opts,
     array('#integrate' => TRUE)
   );
