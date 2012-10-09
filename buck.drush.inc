@@ -235,7 +235,6 @@ function drush_buck_fixperms() {
  * @reurn true on success
  */
 function drush_buck_create() {
-  drush_print_r('starting here');
   $args = drush_get_arguments();
   $site = $args[1];
   $version = isset($args[2]) ? $arg[2] : 'live';
@@ -243,24 +242,27 @@ function drush_buck_create() {
   if (!isset($aliases[$site])) {
     return drush_set_error(0, dt($site . ' does not exist. Check your drush aliases.'));
   }
+
   $site_record[$site] = $aliases[$site];
   _drush_sitealias_add_inherited_values($site_record);
   $site_record = $site_record[$site];
-  $site_record['database'] = str_replace('.', '_', $site);
 
+  $site_record['database'] = str_replace('.', '_', $site);
   $site_record['domain'] = isset($site_record['uri']) ? $site_record['uri'] : $site . '.local';
 
   try {
     buck_create_dns($site_record);
     buck_create_root($site_record);
-    // This is an installation profile. It requires code and a site install.
-    if (isset($site_record['profile'])) {
+    // This is a site install from a makefile. Site is installed through make.
+    if (isset($site_record['makefile'])) {
       buck_get_git($site_record);
+      buck_site_install_make($site_record);
       buck_profile_site_install($site_record);
     }
-    // This is a site install from a makefile. Site is installed through make.
-    elseif (isset($site_record['makefile'])) {
-      buck_site_install_make($site_record);
+    // This is an installation profile. It requires code and a site install.
+    elseif (isset($site_record['profile'])) {
+      buck_get_git($site_record);
+      buck_profile_site_install($site_record);
     }
     // This is a normal site with non-local code, database, and media files.
     else {

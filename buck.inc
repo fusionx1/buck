@@ -123,8 +123,12 @@ define('BUCK_APACHE_TEMPLATE', "
  * @param <type> $params 'codepath'
  */
 function buck_create_apache($site_record) {
-  // get codepath and make sure it exists.
-  $codepath = $site_record['root'];
+  if (isset($site_record['makefile'])) {
+    $codepath = $site_record['root'] . '/webroot';
+  }
+  else {
+    $codepath = $site_record['root'];
+  }
   $domain = $site_record['domain'];
   if (file_exists("/etc/apache2/sites-available/$domain")) {
     if (!drush_confirm(dt('Vhost ' .  $domain . ' already exists. Do you want to erase its contents?'))) {
@@ -132,19 +136,16 @@ function buck_create_apache($site_record) {
     }
   }
 
-  // get template
   $str_config = BUCK_APACHE_TEMPLATE;
 
   drush_log("Creating apache config (/etc/apache2/sites-enabled/$domain)", 'ok');
 
-  // make our own :-)
   $str_config = str_replace("#DOMAIN#", $domain, $str_config);
   $str_config = str_replace("#CODEPATH#", $codepath, $str_config);
 
   $config_handle = fopen("/etc/apache2/sites-available/$domain", "w+");
   fwrite($config_handle, $str_config);
 
-  // enable using script
   buck_shell_exec("sudo a2ensite $domain");
 
   // restart apache
@@ -207,6 +208,9 @@ function buck_create_root($site_record) {
 
   // Create or make sure webroot installed.
   if (file_exists($codepath)) {
+    if (!drush_confirm(dt('Folder ' . $site_record['root'] . ' already exists. Do you want to remove it?'))) {
+      return;
+    }
     if (file_exists($oldpath)) {
       drush_log("Removing existing directory $oldpath", "ok");
       drush_shell_exec("sudo rm -rf $oldpath");
@@ -233,8 +237,24 @@ function buck_destroy_root($site_record) {
 function buck_get_git($site_record) {
   // Install git.
   if (isset($site_record['git'])) {
-    $command = 'git clone ' . $site_record['git'] . ' ' . $site_record['root'];
+    // In a make profile installation workflow, the git code and extractd
+    // webroot don't necessarily have to be in the same place. This is how I
+    // like to handle it.
+    if (isset($site_record['makefile'])) {
+      $site_record['root'] = $site_record['root'] . '/code';
+    }
 
+    if (file_exists($site_record['root'])) {
+      if (!drush_confirm(dt('Git repo at ' . $site_record['root'] . ' already exists. Do you want to erase its contents?'))) {
+        if (!drush_confirm(dt('Do you want to update it?'))) {
+          drush_shell_cd_and_exec($site_record['root'], 'git pull --rebase');
+          return ;
+        }
+        return ;
+      }
+    }
+
+    $command = 'git clone ' . $site_record['git'] . ' ' . $site_record['root'];
     drush_log('Downloading code to ' . $site_record['root'] . ' (takes a minute, check network activity) ...', 'ok');
     if (!system($command)) {
       return drush_set_error('DRUSH_PM_GIT_CHECKOUT_PROBLEMS', dt('Unable to clone project.'));
@@ -248,9 +268,10 @@ function buck_get_git($site_record) {
 
 function buck_profile_site_install($site_record) {
   drush_log('Installing ' . $site_record['profile'] . ' ...', 'ok');
+  $codepath = isset($site_record['makefile']) ? $site_record['root'] . '/webroot' : $site_record['root'];
 
   $opts = array(
-    "--root=" . $site_record['root'],
+    "--root=" . $codepath,
     // TODO: get root user and pass.
     "--db-url=" . 'mysql://root:@localhost/' . $site_record['database'],
     #"--db-prefix=" . $params['db-prefix'],
@@ -273,7 +294,8 @@ function buck_profile_site_install($site_record) {
 }
 
 function buck_site_install_make($site_record) {
-  if (!isset($site_record['makefile'])) {
+  if (isset($site_record['makefile'])) {
+    $codepath = $site_record['root'] . '/webroot';
     $makefile = $site_record['makefile'];
     // TODO: check url.
     #$makefile = buck_fixpath("$makefile");
