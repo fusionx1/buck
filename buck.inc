@@ -273,7 +273,7 @@ function buck_profile_site_install($site_record) {
   $opts = array(
     "--root=" . $codepath,
     // TODO: get root user and pass.
-    "--db-url=" . 'mysql://root:@localhost/' . $site_record['database'],
+    "--db-url=" . 'mysql://root:technai123@localhost/' . $site_record['database'],
     #"--db-prefix=" . $params['db-prefix'],
     "--account-name=admin",
     "--account-pass=admin",

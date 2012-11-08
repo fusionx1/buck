@@ -251,8 +251,8 @@ function drush_buck_create() {
   $site_record['domain'] = isset($site_record['uri']) ? $site_record['uri'] : $site . '.local';
 
   try {
-    buck_create_dns($site_record);
-    buck_create_root($site_record);
+  //  buck_create_dns($site_record);
+  //  buck_create_root($site_record);
     // This is a site install from a makefile. Site is installed through make.
     if (isset($site_record['makefile'])) {
       buck_get_git($site_record);
@@ -271,7 +271,7 @@ function drush_buck_create() {
       //buck_import_database($site_record);
     }
     // Add vhost.
-    buck_create_apache($site_record);
+  //  buck_create_apache($site_record);
 
     // Cleanup
 
