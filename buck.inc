@@ -62,11 +62,11 @@ function buck_fixpath($pathin) {
  * @param <type> $params
  */
 function buck_create_dns($site_record) {
-  $domain = $site_record['domain'];
+  $domain = $site_record['uri'];
   $file = file_get_contents("/etc/hosts");
   // make sure to test for fully spaces parsed domain in hosts file.
   // otherwise shortened partial domains will throw an exception.
-  $domainplus = " " . $site_record['domain'] . " ";
+  $domainplus = " " . $site_record['uri'] . " ";
   if (!strpos($file, $domainplus)) {
     drush_log("Creating DNS config (add $domain to /etc/hosts) ...", 'ok');
     buck_shell_exec("echo '127.0.0.1 $domain #' | sudo tee -a /etc/hosts");
@@ -84,7 +84,7 @@ function buck_create_dns($site_record) {
  * @param <type> $params
  */
 function buck_destroy_dns($site_record) {
-  $domain = $site_record['domain'];
+  $domain = $site_record['uri'];
   buck_shell_exec("sudo sed -i \"/ $domain .*#/d\" /etc/hosts");
 }
 
@@ -122,14 +122,14 @@ define('BUCK_APACHE_TEMPLATE', "
  * @param <type> $domain
  * @param <type> $params 'codepath'
  */
-function buck_create_apache($site_record) {
+function buck_create_webserver_config($site_record) {
   if (isset($site_record['makefile'])) {
     $codepath = $site_record['root'] . '/webroot';
   }
   else {
     $codepath = $site_record['root'];
   }
-  $domain = $site_record['domain'];
+  $domain = $site_record['uri'];
   if (file_exists("/etc/apache2/sites-available/$domain")) {
     if (!drush_confirm(dt('Vhost ' .  $domain . ' already exists. Do you want to erase its contents?'))) {
       return drush_set_error(0, dt('You did not wish to overwrite the vhost. Aborting.'));
@@ -149,7 +149,7 @@ function buck_create_apache($site_record) {
   buck_shell_exec("sudo a2ensite $domain");
 
   // restart apache
-  buck_shell_exec("sudo apache2ctl restart");
+  buck_shell_exec("sudo /etc/init.d/apache2 restart");
 
   drush_log('... done.', 'ok');
 }
@@ -161,11 +161,13 @@ function buck_create_apache($site_record) {
  * @param <type> $domain
  * @param <type> $params
  */
-function buck_destroy_apache($domain, $params) {
+function buck_destroy_webserver_config($site_record) {
+  $domain = $site_record['uri'];
   buck_shell_exec("sudo a2dissite $domain", false);
   $filename = "/etc/apache2/sites-available/$domain";
   if (file_exists($filename)) unlink($filename);  // unlink = delete file
-  buck_shell_exec("sudo apache2ctl restart");
+  drush_log("Removing apache config (/etc/apache2/sites-enabled/$domain)", 'ok');
+  buck_shell_exec("sudo /etc/init.d/apache2 restart");
 }
 
 /**
@@ -175,21 +177,23 @@ function buck_destroy_apache($domain, $params) {
  * @param <type> $domain
  * @param <type> $params
  */
-function buck_create_database($domain, $params) {
-  $db_spec['database'] = $params['domain_'];
-  $db_spec['username'] = $params['dbuser'];
+function buck_create_database($site_record) {
+
+  $db_spec['database'] = $site_record['database'];
   // FIX
   $db_spec['host'] = 'localhost';
-  $db_spec['password'] = $params['dbpassword'];
-  // BAD
+  // Only supported driver. 
   $db_spec['driver'] = 'mysql';
+
   if (drush_sql_db_exists($db_spec)) {
     if (!drush_confirm(dt('Database ' .  $db_spec['database'] . ' already exists. Do you want to erase its contents?'))) {
       return drush_set_error(0, dt('You did not wish to overwrite the databases. Aborting.'));
     }
-    _drush_sql_drop($db_spec);
+   // _drush_sql_drop($db_spec);
   }
   else {
+    $db_spec['username'] = $site_record['database'];
+    $db_spec['password'] = $site_record['dbpassword'] ? $site_record['dbpassword'] : buck_generate_password();
     _drush_sql_create($db_spec);
   }
 }
@@ -199,7 +203,9 @@ function buck_create_database($domain, $params) {
  * @param <type> $domain
  * @param <type> $params
  */
-function buck_destroy_database($domain, $params) {
+function buck_destroy_database($site_record) {
+  // There is no sql-destroy in drush.
+  drush_shell_exec('mysql -e "drop database ' . $site_record['database'] . '"');
 }
 
 function buck_create_root($site_record) {
@@ -234,7 +240,7 @@ function buck_destroy_root($site_record) {
   drush_log("... done", "ok");
 }
 
-function buck_get_git($site_record) {
+function buck_fetch_git($site_record) {
   // Install git.
   if (isset($site_record['git'])) {
     // In a make profile installation workflow, the git code and extractd
@@ -254,7 +260,7 @@ function buck_get_git($site_record) {
       }
     }
 
-    $command = 'git clone ' . $site_record['git'] . ' ' . $site_record['root'];
+    $command = 'git clone ' . '--branch ' . $site_record['git']['branch'] . ' ' . $site_record['git']['url'] . ' ' . $site_record['root'];
     drush_log('Downloading code to ' . $site_record['root'] . ' (takes a minute, check network activity) ...', 'ok');
     if (!system($command)) {
       return drush_set_error('DRUSH_PM_GIT_CHECKOUT_PROBLEMS', dt('Unable to clone project.'));
@@ -273,7 +279,7 @@ function buck_profile_site_install($site_record) {
   $opts = array(
     "--root=" . $codepath,
     // TODO: get root user and pass.
-    "--db-url=" . 'mysql://root:technai123@localhost/' . $site_record['database'],
+    "--db-url=" . 'mysql://root:@localhost/' . $site_record['database'],
     #"--db-prefix=" . $params['db-prefix'],
     "--account-name=admin",
     "--account-pass=admin",
@@ -310,7 +316,7 @@ function buck_site_install_make($site_record) {
   }
 }
 
-function buck_get_files($site_record) {
+function buck_fetch_files($site_record) {
   $domain = $site_record['domain'];
   $root = $site_record['root'];
   drush_invoke_process(
@@ -320,7 +326,7 @@ function buck_get_files($site_record) {
     array('#integrate' => TRUE)
   );
 }
-function buck_import_database($site_record) {
+function buck_fetch_database($site_record) {
   //ssh -t etc.
 }
 function drush_buck_permissions_cleanup($site_record) {
@@ -470,4 +476,36 @@ function buck_destroy_install($domain, $params) {
 
   // delete files folder
   buck_shell_exec("sudo rm -rf $codepath/sites/all/default/files");
+}
+
+function buck_get_env($environment) {
+  if (!$environment) {
+    return drush_set_error(dt('You must specify a drush alias with the buck command.'));
+  }
+  $env = drush_sitealias_get_record($environment);
+  if (!$env) {
+    // OK, we aren't calling this outside webroot, see if we are in a site directory.
+    $env = drush_sitealias_get_record("@self");
+    if (!$env) {
+      return drush_set_error(dt('Failed to load site alias for !name', array('!name' => $environment)));
+    }
+  }
+
+  // TODO: check if this works.
+  //_drush_sitealias_add_inherited_values($env);
+
+  return $env;
+}
+
+function buck_generate_password($length = 10){
+  $chars =  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'.
+            '0123456789``-=~!@#$%^&*()_+,.<>?;:[]{}\|';
+
+  $str = '';
+  $max = strlen($chars) - 1;
+
+  for ($i=0; $i < $length; $i++)
+    $str .= $chars[rand(0, $max)];
+
+  return $str;
 }
