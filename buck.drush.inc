@@ -199,6 +199,12 @@ function _buck_required_params($command) {
       'uri',
       'root',
     ),
+    'buck-create' => array(
+      'database',
+      'db-url',
+      'root',
+      'uri',
+    ),
   );
 
   return $required[$command];
@@ -233,6 +239,7 @@ function _buck_check_params($site_record, $required) {
   $ret = array_merge($ret, $site_record);
   $site_record = array_merge($site_record, $ret);
 
+  // This will be blank unless added to alias.
   $site_record['db-url'] = 'mysql://' . $site_record['dbuser'] . ':' . $site_record['dbpassword'] . '@localhost/' . $site_record['database'];
   if (strlen($site_record['database']) > 15) {
     $ret['fail'] = true;
@@ -282,40 +289,33 @@ function drush_buck_fixperms() {
  * @reurn true on success
  */
 function drush_buck_create($environment = NULL) {
-  
 
-  // Get options.
-  // options per command
+  $prepared = buck_env_prepare($environment);
 
-
-  // Build config array.
-
-
-  $site_record['database'] = str_replace('.', '_', $site);
-  $site_record['domain'] = isset($site_record['uri']) ? $site_record['uri'] : $site . '.local';
+  $site_record = $prepared['site_record'];
 
   try {
     buck_create_dns($site_record);
     buck_create_root($site_record);
     // This is a site install from a makefile. Site is installed through make.
     if (isset($site_record['makefile'])) {
-      buck_get_git($site_record);
+      buck_fetch_git($site_record);
       buck_site_install_make($site_record);
-      buck_profile_site_install($site_record);
+      buck_site_install_profile($site_record);
     }
     // This is an installation profile. It requires code and a site install.
     elseif (isset($site_record['profile'])) {
-      buck_get_git($site_record);
-      buck_profile_site_install($site_record);
+      buck_fetch_git($site_record);
+      buck_site_install_profile($site_record);
     }
     // This is a normal site with non-local code, database, and media files.
     else {
-      buck_get_git($site_record);
+      buck_fetch_git($site_record);
     //  buck_get_files($site_record);
       //buck_import_database($site_record);
     }
     // Add vhost.
-    buck_create_apache($site_record);
+    buck_create_webserver_config($site_record);
 
     // Cleanup
 
@@ -411,19 +411,28 @@ function drush_buck_command_destroy($environment = NULL) {
 }
 
 function buck_env_prepare($environment) {
+
+  // Get alias information.
   if (!$env = buck_get_env($environment)) {
     return '';
   }
 
+  // Get allowed arguments.
   $cmds = array_merge(_buck_create_destroy_arg_list(), _buck_fetch_arg_list());
+  // Get actual arguments.
   $commands = drush_get_arguments();
+  // Grab command from arguments.
   $command = array_pop($commands);
-  
-  drush_print_r($cmds);
 
-  if (!in_array($command, $cmds)) {
-    drush_set_error(0, dt('Command %command not found. See drush help buck-command.', array('%command' => $command)));
-    die();
+  // This is a hoky way of dealing with the buck-create-command taking an extra argument.
+  if ($command == $environment) {
+    $command = $commands[0];
+  }
+  else {
+    if (!in_array($command, $cmds)) {
+      drush_set_error(0, dt('Command %command not found. See drush help buck-command.', array('%command' => $command)));
+      die();
+    }
   }
 
   $options = drush_get_context('cli');

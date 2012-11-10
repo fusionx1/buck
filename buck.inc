@@ -73,7 +73,7 @@ function buck_create_dns($site_record) {
     drush_log('... done.', 'ok');
   }
   else {
-    drush_log("DNS config $domain already added to /etc/hosts)", 'ok');
+    drush_log("DNS config $domain already added to /etc/hosts", 'ok');
   }
 }
 
@@ -117,17 +117,13 @@ define('BUCK_APACHE_TEMPLATE', "
 /**
  * Configure apache virtualhost file using the template.
  * Files put in /etc/apache2/sites-available/$domain, then a2ensite'd
- * Runs: apache2ctl restart
  *
  * @param <type> $domain
  * @param <type> $params 'codepath'
  */
 function buck_create_webserver_config($site_record) {
   if (isset($site_record['makefile'])) {
-    $codepath = $site_record['root'] . '/webroot';
-  }
-  else {
-    $codepath = $site_record['root'];
+    $site_record['root'] = $site_record['root'] . '/webroot';
   }
   $domain = $site_record['uri'];
   if (file_exists("/etc/apache2/sites-available/$domain")) {
@@ -141,7 +137,7 @@ function buck_create_webserver_config($site_record) {
   drush_log("Creating apache config (/etc/apache2/sites-enabled/$domain)", 'ok');
 
   $str_config = str_replace("#DOMAIN#", $domain, $str_config);
-  $str_config = str_replace("#CODEPATH#", $codepath, $str_config);
+  $str_config = str_replace("#CODEPATH#", $site_record['root'], $str_config);
 
   $config_handle = fopen("/etc/apache2/sites-available/$domain", "w+");
   fwrite($config_handle, $str_config);
@@ -197,6 +193,7 @@ function buck_create_database($site_record) {
     _drush_sql_create($db_spec);
   }
 }
+
 /**
  * Destroys the database using SQL.
  *
@@ -272,12 +269,14 @@ function buck_fetch_git($site_record) {
   }
 }
 
-function buck_profile_site_install($site_record) {
+function buck_site_install_profile($site_record) {
   drush_log('Installing ' . $site_record['profile'] . ' ...', 'ok');
-  $codepath = isset($site_record['makefile']) ? $site_record['root'] . '/webroot' : $site_record['root'];
+  if (isset($site_record['makefile'])) {
+    $site_record['root'] = $site_record['root'] . '/webroot';
+  }
 
   $opts = array(
-    "--root=" . $codepath,
+    "--root=" . $site_record['root'],
     // TODO: get root user and pass.
     "--db-url=" . 'mysql://root:@localhost/' . $site_record['database'],
     #"--db-prefix=" . $params['db-prefix'],
@@ -301,15 +300,16 @@ function buck_profile_site_install($site_record) {
 
 function buck_site_install_make($site_record) {
   if (isset($site_record['makefile'])) {
-    $codepath = $site_record['root'] . '/webroot';
-    $makefile = $site_record['makefile'];
+    if (isset($site_record['makefile'])) {
+      $site_record['root'] = $site_record['root'] . '/webroot';
+    }
     // TODO: check url.
     #$makefile = buck_fixpath("$makefile");
     #if (!file_exists($makefile)) throw new Exception("Makefile ". $makefile ." not found.");
     drush_invoke_process(
       drush_sitealias_get_record('@self'),
       'make',
-      array($makefile, $codepath),
+      array($site_record['makefile'], $site_record['root']),
       array('--prepare-install'),
       array('#integrate' => TRUE)
     );
