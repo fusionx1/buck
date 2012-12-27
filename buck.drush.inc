@@ -5,6 +5,8 @@
  *   Buck drush commands.
  */
 
+define('BUCK_WEBROOT', 'webroot');
+
 include_once("buck.inc");
 
 /**
@@ -199,7 +201,13 @@ function _buck_required_params($command) {
       'uri',
       'root',
     ),
-    'buck-create' => array(
+    'create' => array(
+      'database',
+      'db-url',
+      'root',
+      'uri',
+    ),
+    'destroy' => array(
       'database',
       'db-url',
       'root',
@@ -219,7 +227,7 @@ function _buck_check_params($site_record, $required) {
   $ret = array();
 
   $domain = str_replace('/', '', $site_record['uri']);
-  $database = str_replace('.', '_', $domain);
+  $database = str_replace(array('.', '-'), '_', $domain);
   $defaults['dbuser'] = '';
   $defaults['dbpassword'] = '';
   $defaults['database'] = $database;
@@ -233,6 +241,7 @@ function _buck_check_params($site_record, $required) {
   $defaults['site-name'] = $domain;
   $defaults['site-mail'] = 'info@'. $domain;
   $defaults['sites-subdir'] = 'default';
+  $defaults['webroot'] = $site_record['root'] . '/' . BUCK_WEBROOT;
 
   // Merge it all together - 2nd array overwrites first.
   $ret = array_merge($ret, $defaults);
@@ -249,12 +258,13 @@ function _buck_check_params($site_record, $required) {
     $ret['fail'] = true;
     drush_log("  '--uri' must be at least 3 characters long.", 'error');
   }
-  
+
   // Check required
   foreach($required as $require) {
     if (empty($site_record[$require])) {
       $site_record['fail'] = true;
       drush_log("  '--$require' is a required option for this command.", 'error');
+      die();
     }
   }
   return $site_record;
@@ -286,30 +296,97 @@ function drush_buck_fixperms() {
  *
  * This function goes step-by-step in creating the new site.
  *
- * @reurn true on success
+ * @return true on success
  */
-function drush_buck_create($environment = NULL) {
+function drush_buck_update($environment = NULL) {
 
-  $prepared = buck_env_prepare($environment);
+  $prepared = buck_env_prepare($environment, 'create');
 
   $site_record = $prepared['site_record'];
 
   try {
-    buck_create_dns($site_record);
-    buck_create_root($site_record);
     // This is a site install from a makefile. Site is installed through make.
     if (isset($site_record['makefile'])) {
-      buck_fetch_git($site_record);
-      buck_site_install_make($site_record);
-      buck_site_install_profile($site_record);
+      // In this case the site is created first, then the git repo is installed.
+      // Buck update git.
     }
     // This is an installation profile. It requires code and a site install.
     elseif (isset($site_record['profile'])) {
+      buck_create_root($site_record);
       buck_fetch_git($site_record);
       buck_site_install_profile($site_record);
     }
     // This is a normal site with non-local code, database, and media files.
     else {
+      buck_create_root($site_record);
+      buck_fetch_git($site_record);
+    //  buck_get_files($site_record);
+      //buck_import_database($site_record);
+    }
+
+    // Cleanup
+
+  } catch (Exception $e) {
+    $message = $e->getMessage();
+    drush_log("Command failed: $message", "error");
+    return false;
+  }
+
+  drush_log("Command completed successfully.", "success");
+  return true;
+}
+/**
+ * Drush callbackfunction for 'drush buck-create'.
+ *
+ * This function goes step-by-step in creating the new site.
+ *
+ * @return true on success
+ */
+function drush_buck($environment = NULL) {
+
+  $prepared = buck_env_prepare($environment, 'create');
+
+  $site_record = $prepared['site_record'];
+
+  try {
+    buck_create_dns($site_record);
+    // This is a site install from a makefile. Site is installed through make.
+    if (isset($site_record['makefile'])) {
+      // 1) if folder exists
+      if (file_exists($site_record['root'])) {
+        // 2) update 
+        // 2a) do you want to start from scratch?
+        if (drush_confirm(dt('Base directory: ' . $site_record['root'] . 'already exits. Do you want to remove it?'))) {
+          // 2b) remove and archive
+          $codepath = $site_record['root'];
+          $oldpath = $site_record['root'] . '.old';
+
+          if (file_exists($oldpath)) {
+            drush_log("Removing existing directory $oldpath", "ok");
+            drush_shell_exec("sudo rm -rf $oldpath");
+            drush_log("... done", "ok");
+          }
+          drush_log("Moving existing directory $codepath to $oldpath", "ok");
+          buck_shell_exec("mv $codepath $oldpath");
+          drush_log("... done", "ok");
+          // 3) create from scratch
+          buck_site_install_make($site_record);
+          buck_fetch_git_profile($site_record);
+          buck_site_install_profile($site_record);
+        }
+        else {
+        }
+      }
+      else {
+        // 3) create from scratch
+        buck_site_install_make($site_record);
+        buck_fetch_git_profile($site_record);
+        buck_site_install_profile($site_record);
+      }
+    }
+    // This is a normal site with non-local code, database, and media files.
+    else {
+      buck_create_root($site_record);
       buck_fetch_git($site_record);
     //  buck_get_files($site_record);
       //buck_import_database($site_record);
@@ -386,7 +463,7 @@ function drush_buck_destroy() {
  * @reurn true on success
  */
 function drush_buck_fetch($environment = NULL) {
-  $prepared = buck_env_prepare($environment);
+  $prepared = buck_env_prepare($environment, 'fetch');
   call_user_func('buck_fetch_' . $prepared['command'], $prepared['site_record']); 
 }
 
@@ -396,7 +473,7 @@ function drush_buck_fetch($environment = NULL) {
  * @reurn true on success
  */
 function drush_buck_command_create($environment = NULL) {
-  $prepared = buck_env_prepare($environment);
+  $prepared = buck_env_prepare($environment, 'command_create');
   call_user_func('buck_create_' . $prepared['command'], $prepared['site_record']); 
 }
 
@@ -406,26 +483,24 @@ function drush_buck_command_create($environment = NULL) {
  * @reurn true on success
  */
 function drush_buck_command_destroy($environment = NULL) {
-  $prepared = buck_env_prepare($environment);
+  $prepared = buck_env_prepare($environment, 'destroy');
   call_user_func('buck_destroy_' . $prepared['command'], $prepared['site_record']); 
 }
 
-function buck_env_prepare($environment) {
-
+function buck_env_prepare($environment, $command) {
   // Get alias information.
-  if (!$env = buck_get_env($environment)) {
-    return '';
-  }
+  $env = buck_get_env($environment);
 
   // Get allowed arguments.
   $cmds = array_merge(_buck_create_destroy_arg_list(), _buck_fetch_arg_list());
   // Get actual arguments.
-  $commands = drush_get_arguments();
+  $args = drush_get_arguments();
   // Grab command from arguments.
-  $command = array_pop($commands);
+  $args = count($args) > 1 ? array_pop($args) : $args;
 
+  /**
   // This is a hoky way of dealing with the buck-create-command taking an extra argument.
-  if ($command == $environment) {
+  if ($command == $environment && $env && $env['#name'] != '@self') {
     $command = $commands[0];
   }
   else {
@@ -434,12 +509,19 @@ function buck_env_prepare($environment) {
       die();
     }
   }
+   */
 
   $options = drush_get_context('cli');
 
-  $site_record = array_merge($options, $env);
+  if ($env) {
+    $site_record = array_merge($options, $env);
+  }
+  else {
+    $site_record = $options;
+  }
 
   $required = _buck_required_params($command);
+
   $site_record = _buck_check_params($site_record, $required);
 
   $prepared['site_record'] = $site_record;

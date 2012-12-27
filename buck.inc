@@ -122,9 +122,6 @@ define('BUCK_APACHE_TEMPLATE', "
  * @param <type> $params 'codepath'
  */
 function buck_create_webserver_config($site_record) {
-  if (isset($site_record['makefile'])) {
-    $site_record['root'] = $site_record['root'] . '/webroot';
-  }
   $domain = $site_record['uri'];
   if (file_exists("/etc/apache2/sites-available/$domain")) {
     if (!drush_confirm(dt('Vhost ' .  $domain . ' already exists. Do you want to erase its contents?'))) {
@@ -137,7 +134,7 @@ function buck_create_webserver_config($site_record) {
   drush_log("Creating apache config (/etc/apache2/sites-enabled/$domain)", 'ok');
 
   $str_config = str_replace("#DOMAIN#", $domain, $str_config);
-  $str_config = str_replace("#CODEPATH#", $site_record['root'], $str_config);
+  $str_config = str_replace("#CODEPATH#", $site_record['webroot'], $str_config);
 
   $config_handle = fopen("/etc/apache2/sites-available/$domain", "w+");
   fwrite($config_handle, $str_config);
@@ -225,7 +222,7 @@ function buck_create_root($site_record) {
   }
   else {
     drush_log("Creating directory $codepath", "ok");
-    drush_mkdir($codepath);
+    drush_mkdir($site_record['webroot']);
     drush_log("... done", "ok");
   }
 }
@@ -237,28 +234,60 @@ function buck_destroy_root($site_record) {
   drush_log("... done", "ok");
 }
 
+/**
+ * Moves existing profile to temp directory, installs git version, moves all
+ * ignored folders back to profile.
+ * Finished product is a profile that is version controlled by git.
+ */
+function buck_fetch_git_profile($site_record) {
+  $site_record['webroot'] = $site_record['webroot'] . '/profiles/' . $site_record['profile'];
+
+  // Move profile into temp directory.
+  $tmp_dir = drush_tempdir();
+  drush_move_dir($site_record['webroot'], $tmp_dir, TRUE);
+
+  // Install git profile.
+  $branch = isset($site_record['git']['branch']) ? '--branch ' . $site_record['git']['branch'] : '';
+  $command = 'git clone ' . $branch . $site_record['git']['url'] . ' ' . $site_record['webroot'];
+  drush_log('Downloading code to ' . $site_record['webroot'] . ' (takes a minute, check network activity) ...', 'ok');
+  buck_shell_exec($command);
+  drush_log("... done", "ok");
+
+  // Move folders created during make back into profile.
+  $git_ignore = $site_record['webroot'] . '/.gitignore';
+  if (file_exists($git_ignore)) {
+    $profile_ignored = file($git_ignore);
+
+    foreach ($profile_ignored as $dir) {
+      $ignore_dir = $tmp_dir . "/" . trim($dir);
+      drush_move_dir($ignore_dir, $site_record['webroot'] . '/' . trim($dir), TRUE);
+    }
+  }
+  else {
+    if (drush_confirm(dt('Do you want ignore?'))) {
+      drush_print_r($git_ignore);
+    }
+    return drush_set_error('DRUSH_PM_GIT_CHECKOUT_PROBLEMS', dt('Could not find .gitignore file.'));
+  }
+
+}
+
 function buck_fetch_git($site_record) {
   // Install git.
   if (isset($site_record['git'])) {
-    // In a make profile installation workflow, the git code and extractd
-    // webroot don't necessarily have to be in the same place. This is how I
-    // like to handle it.
-    if (isset($site_record['makefile'])) {
-      $site_record['root'] = $site_record['root'] . '/code';
-    }
-
-    if (file_exists($site_record['root'])) {
-      if (!drush_confirm(dt('Git repo at ' . $site_record['root'] . ' already exists. Do you want to erase its contents?'))) {
+    if (file_exists($site_record['webroot'])) {
+      if (!drush_confirm(dt('Git repo at ' . $site_record['webroot'] . ' already exists. Do you want to erase its contents?'))) {
         if (!drush_confirm(dt('Do you want to update it?'))) {
-          drush_shell_cd_and_exec($site_record['root'], 'git pull --rebase');
+          drush_shell_cd_and_exec($site_record['webroot'], 'git pull --rebase');
           return ;
         }
         return ;
       }
     }
 
-    $command = 'git clone ' . '--branch ' . $site_record['git']['branch'] . ' ' . $site_record['git']['url'] . ' ' . $site_record['root'];
-    drush_log('Downloading code to ' . $site_record['root'] . ' (takes a minute, check network activity) ...', 'ok');
+    $branch = isset($site_record['git']['branch']) ? '--branch ' . $site_record['git']['branch'] : '';
+    $command = 'git clone ' . $branch . $site_record['git']['url'] . ' ' . $site_record['webroot'];
+    drush_log('Downloading code to ' . $site_record['webroot'] . ' (takes a minute, check network activity) ...', 'ok');
     if (!system($command)) {
       return drush_set_error('DRUSH_PM_GIT_CHECKOUT_PROBLEMS', dt('Unable to clone project.'));
     }
@@ -271,12 +300,9 @@ function buck_fetch_git($site_record) {
 
 function buck_site_install_profile($site_record) {
   drush_log('Installing ' . $site_record['profile'] . ' ...', 'ok');
-  if (isset($site_record['makefile'])) {
-    $site_record['root'] = $site_record['root'] . '/webroot';
-  }
 
   $opts = array(
-    "--root=" . $site_record['root'],
+    "--root=" . $site_record['webroot'],
     // TODO: get root user and pass.
     "--db-url=" . 'mysql://root:@localhost/' . $site_record['database'],
     #"--db-prefix=" . $params['db-prefix'],
@@ -300,16 +326,23 @@ function buck_site_install_profile($site_record) {
 
 function buck_site_install_make($site_record) {
   if (isset($site_record['makefile'])) {
-    if (isset($site_record['makefile'])) {
-      $site_record['root'] = $site_record['root'] . '/webroot';
+
+    if (file_exists($site_record['root'])) {
+      if (drush_confirm(dt($site_record['root'] . ' already exist, do you want to remove it?'))) {
+        buck_destroy_root($site_record);
+      }
+      elseif (drush_confirm(dt('Do you want to update it?'))) {
+        // TODO: Run update.
+      }
     }
+
     // TODO: check url.
     #$makefile = buck_fixpath("$makefile");
     #if (!file_exists($makefile)) throw new Exception("Makefile ". $makefile ." not found.");
-    drush_invoke_process(
+    $make = drush_invoke_process(
       drush_sitealias_get_record('@self'),
       'make',
-      array($site_record['makefile'], $site_record['root']),
+      array($site_record['makefile'], $site_record['webroot']),
       array('--prepare-install'),
       array('#integrate' => TRUE)
     );
@@ -332,7 +365,7 @@ function buck_fetch_database($site_record) {
 function drush_buck_permissions_cleanup($site_record) {
 
   $domain = $site_record['domain'];
-  $root = $site_record['root'];
+  $root = $site_record['webroot'];
   drush_invoke_process(
     drush_sitealias_get_record('@self'),
     'buck-fixperms',
@@ -406,7 +439,7 @@ function buck_create_install($domain, $params) {
 
   // Nuff foreplay, let's install!
   $opts = array(
-    "--root=" . $params['codepath'],
+    "--root=" . $params['webroot'],
     "--db-url=" . $params['db-url'],
     "--db-prefix=" . $params['db-prefix'],
     "--account-name=" . $params['account-name'],
