@@ -88,7 +88,6 @@ function buck_destroy_dns($site_record) {
   buck_shell_exec("sudo sed -i \"/ $domain .*#/d\" /etc/hosts");
 }
 
-
 /**
  * This is the virtual hosts template file for the apache functions.
  */
@@ -112,6 +111,32 @@ define('BUCK_APACHE_TEMPLATE', "
   LogLevel warn
   ServerSignature Off
 </VirtualHost>
+");
+
+/**
+ * This is the virtual hosts template file for settings.php file.
+ */
+define('BUCK_SETTINGS_PHP_TEMPLATE', "
+$databases = array (
+  'default' => 
+  array (
+    'default' => 
+    array (
+      'database' => '#DATABASE#',
+      'username' => '#USERNAME',
+      'password' => '#PASSWORD#',
+      'host' => 'localhost',
+      'port' => '',
+      'driver' => 'mysql',
+      'prefix' => '',
+    ),
+  ),
+);
+$base_url = '#URL#';
+ini_set('session.gc_probability', 1);
+ini_set('session.gc_divisor', 100);
+ini_set('session.gc_maxlifetime', 200000);
+ini_set('session.cookie_lifetime', 2000000);
 ");
 
 /**
@@ -193,9 +218,6 @@ function buck_create_database($site_record) {
 
 /**
  * Destroys the database using SQL.
- *
- * @param <type> $domain
- * @param <type> $params
  */
 function buck_destroy_database($site_record) {
   // There is no sql-destroy in drush.
@@ -204,7 +226,8 @@ function buck_destroy_database($site_record) {
 
 function buck_create_root($site_record) {
   $codepath = $site_record['root'];
-  $oldpath = $site_record['root'] . '.old';
+  $tar_file = $site_record['database'] . '-' . date('y-m-d-h') . '.tar.gz';
+  $tar_dir = '/var/www/' . trim(strrchr($site_record['root'], '/'), '/');
 
   // Create or make sure webroot installed.
   if (file_exists($codepath)) {
@@ -216,8 +239,13 @@ function buck_create_root($site_record) {
       drush_shell_exec("sudo rm -rf $oldpath");
       drush_log("... done", "ok");
     }
-    drush_log("Moving existing directory $codepath to $oldpath", "ok");
-    buck_shell_exec("mv $codepath $oldpath");
+    drush_log("Archiving existing directory $codepath to $tar_file", "ok");
+    buck_shell_exec("/bin/tar zcfP $tar_file $codepath");
+    drush_log("Removing existing directory $codepath", "ok");
+    drush_delete_dir("$codepath");
+    drush_log("... done", "ok");
+    drush_log("Creating directory $codepath", "ok");
+    drush_mkdir($site_record['webroot']);
     drush_log("... done", "ok");
   }
   else {
@@ -272,21 +300,36 @@ function buck_fetch_git_profile($site_record) {
 
 }
 
+/**
+ * Sync files from remote to local.
+ */
+function buck_sync_files($site_record) {
+  // TODO: Add hook for hosts like pantheon that don't support drush rsync.
+  drush_invoke_process(
+    '@self',
+    'rsync',
+    array("@" . $site_record['sync-source'] . ":%files", "@" . $site_record['#name'] . ":%files"),
+    array("-v"),
+    array('interactive' => TRUE)
+  );
+  drush_log("... done", "ok");
+}
+
+/**
+ * Clone or pull a git repo.
+ */
 function buck_fetch_git($site_record) {
   // Install git.
   if (isset($site_record['git'])) {
-    if (file_exists($site_record['webroot'])) {
-      if (!drush_confirm(dt('Git repo at ' . $site_record['webroot'] . ' already exists. Do you want to erase its contents?'))) {
-        if (!drush_confirm(dt('Do you want to update it?'))) {
-          drush_shell_cd_and_exec($site_record['webroot'], 'git pull --rebase');
-          return ;
-        }
-        return ;
-      }
+    if (file_exists($site_record['webroot'] . '/.git')) {
+      drush_log('Git repo at ' . $site_record['webroot'] . '/.git already exists. Updating...', 'ok');
+      drush_shell_cd_and_exec($site_record['webroot'], 'git pull --rebase');
+      return ;
     }
 
     $branch = isset($site_record['git']['branch']) ? '--branch ' . $site_record['git']['branch'] : '';
-    $command = 'git clone ' . $branch . $site_record['git']['url'] . ' ' . $site_record['webroot'];
+    $command = 'git clone ' . $branch . ' ' . $site_record['git']['url'] . ' ' . $site_record['webroot'];
+    drush_print_r($command);
     drush_log('Downloading code to ' . $site_record['webroot'] . ' (takes a minute, check network activity) ...', 'ok');
     if (!system($command)) {
       return drush_set_error('DRUSH_PM_GIT_CHECKOUT_PROBLEMS', dt('Unable to clone project.'));
@@ -340,7 +383,7 @@ function buck_site_install_make($site_record) {
     #$makefile = buck_fixpath("$makefile");
     #if (!file_exists($makefile)) throw new Exception("Makefile ". $makefile ." not found.");
     $make = drush_invoke_process(
-      drush_sitealias_get_record('@self'),
+      '@self',
       'make',
       array($site_record['makefile'], $site_record['webroot']),
       array('--prepare-install'),
@@ -349,25 +392,52 @@ function buck_site_install_make($site_record) {
   }
 }
 
-function buck_fetch_files($site_record) {
-  $domain = $site_record['domain'];
-  $root = $site_record['root'];
+/**
+ *
+ */
+function buck_sync_database($site_record) {
+  // TODO: Add hook for hosts like pantheon that don't support drush sql-sync.
+
+  // If there is no local database, need to create one and add it to settings.php
+  if (drush_sql_db_exists($site_record)) {
+    die('now');
+    // Create database.
+    $db_pass = drush_generate_password();
+    $db_url = 'mysql://' . $site_record['database'] . ':' . $db_pass  . '@127.0.0.1/' . $site_record['database'];
+    drush_invoke_process(
+      '@self',
+      'sql-create',
+      array("@" . $site_record['sync-source'], "@" . $site_record['#name']),
+      array('--db-url=' . $db_url),
+      array('interactive' => TRUE)
+    );
+
+    // Add settings.php
+    $str_config = BUCK_APACHE_TEMPLATE;
+    $str_config = str_replace("#DATABASE#", $site_record['database'], $str_config);
+    $str_config = str_replace("#USERNAME#", $site_record['database'], $str_config);
+    $str_config = str_replace("#PASSWORD#", $db_pass, $str_config);
+
+    $config_handle = fopen($site_record['root'] . "sites/default/settings.php", "w+");
+    fwrite($config_handle, $str_config);
+  }
+  die('then');
+  // 3) if so
   drush_invoke_process(
-    drush_sitealias_get_record('@' . $site_record['site']) ,
-    'rsync',
-    array('@' . $site_record['site'] . '.' . $site_record['sync_version'] . ':%files ' . '@' . $site_record['site'] . ':%files'),
-    array('#integrate' => TRUE)
+    '@self',
+    'sql-sync',
+    array("@" . $site_record['sync-source'], "@" . $site_record['#name']),
+    array(),
+    array('interactive' => TRUE)
   );
 }
-function buck_fetch_database($site_record) {
-  //ssh -t etc.
-}
+
 function drush_buck_permissions_cleanup($site_record) {
 
   $domain = $site_record['domain'];
   $root = $site_record['webroot'];
   drush_invoke_process(
-    drush_sitealias_get_record('@self'),
+    '@self',
     'buck-fixperms',
     array(),
     array("--domain=$domain", "--codepath=$root"),

@@ -39,33 +39,25 @@ function _buck_fetch_arg_list() {
  */
 function buck_drush_command() {
   $items = array();
-  $items['buck-create'] = array(
+  $items['buck'] = array(
     'description' => "Fetch a site.",
     'arguments' => array(
-      'site name' => 'Required. Should be the name of the site as it appears in Redmine. Do not include full URL.',
-      'version' => 'Optional. Choices are usually live or dev. Defaults to dev. Determines where DB and files come from.',
+      'drush alias' => 'Required. Drush alias for site, aka @mysite.local.',
+      'sync alias' => 'Optional. Drush alias for site we are syncing from. Defaults to sync-source in drush alias. Aka @mysite.dev.',
     ),
-    'aliases' => array('bc'),
+    'aliases' => array('bf'),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
   );
   $items['buck-update'] = array(
     'description' => "Update the code, db and files of site.",
     'arguments' => array(
-      'site name' => 'Required. Should be the name of the site as it appears in Redmine. Do not include full URL.',
-      'version' => 'Optional. Choices are usually live or dev. Defaults to dev. Determines where DB and files come from.',
+      'drush alias' => 'Required. Drush alias for site, aka @mysite.local.',
+      'sync alias' => 'Optional. Drush alias for site we are syncing from. Defaults to sync-source in drush alias. Aka @mysite.dev.',
     ),
     'aliases' => array('bu'),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
   );
-  $items['buck-fetch'] = array(
-    'description' => "Create a buck dev element (" . implode(', ', _buck_fetch_arg_list()) . ").",
-    'arguments' => array(
-      'what' => 'Optional. One or more items to create: [' . implode('|', _buck_fetch_arg_list()) . '|all] Defaults to "all"',
-    ),
-    'aliases' => array('bf'),
-    'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
-  );
-  $items['buck-command-create'] = array(
+  $items['buck-command'] = array(
     'description' => "Create a buck dev element (" . implode(', ', _buck_create_destroy_arg_list()) . ").",
     'arguments' => array(
       'what' => 'Optional. One or more items to create: [' . implode('|', _buck_create_destroy_arg_list()) . '|all] Defaults to "all"',
@@ -100,54 +92,14 @@ function buck_drush_command() {
     'aliases' => array('bcc'),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUSH, // No bootstrap at all.
   );
-  $items['buck-command-destroy'] = array(
-    'description' => "Remove a buck dev element (" . implode(', ', _buck_create_destroy_arg_list()) . ").",
-    'arguments' => array(
-      'what' => 'Optional. One or more items to create: [' . implode('|', _buck_create_destroy_arg_list()) . '|all] Defaults to "all"',
-    ),
-    'options' => array(
-      'uri'       => 'Required (all).  Domain name of new site.  Use this to reference site with other commands.  Becomes dns, dbname, dbuser, dbpass, site-name, and kitchen-sink',
-      'dbuser'       => 'Optional (db).  Root mysql user.  Defaults to "root"',
-      'dbpassword'   => 'Optional (db).  Root mysql password.  Defaults to "buck"',
-      'codepath'     => 'Optional (apache,code,install).  Path to drupal code.  Defaults to "~/websites/[domain]"',
-      'makefile'     => 'Optional (code).  Path to drupal make file.  Defaults to D7 "~/websites/default.make"',
-      'profile'      => 'Optional (install).  Name of profile to install.  Defaults to "default" in D6, "standard" in D7',
-      'db-url'       => 'Optional (install).  DB url.  Defaults to "mysql://[domain]]:[domain]@localhost/[domain]" (replace . with _ in [domain])',
-      'db-prefix'    => 'Optional (install).  DB table prefix.  Defaults to ""',
-      'account-name' => 'Optional (install).  Name of user 1.  Defaults to "admin"',
-      'account-pass' => 'Optional (install).  Password user 1.  Defaults to "admin"',
-      'account-mail' => 'Optional (install).  Email of user 1.  Defaults to "admin@[domain]"',
-      'locale'       => 'Optional (install).  Installation profile.  Defaults to "en"',
-      'clean-url'    => 'Optional (install).  Enable clean-urls?  Defaults to "1"',
-      'site-name'    => 'Optional (install).  Site name.  Defaults to "[domain]"',
-      'site-mail'    => 'Optional (install).  Site default email.  Defaults to "info@[domain]"',
-      'sites-subdir' => 'Optional (install).  Dir in /sites folder.  Defaults to "default"',
-    ),
-    'aliases' => array('bcd'),
-    'bootstrap' => DRUSH_BOOTSTRAP_DRUSH, // No bootstrap at all.
-  );
   $items['buck-destroy'] = array(
     'description' => "Destroy a buck development website (" . implode(', ', _buck_create_destroy_arg_list()) . ").",
     'arguments' => array(
-      'what' => 'Optional. One or more items to destroy: [' . implode('|', _buck_create_destroy_arg_list()) . '|all] Defaults to "all"',
-    ),
-    'options' => array(
-      'domain' => 'Domain name to destroy.',
-      'codepath' => 'Path to drupal code.  Defaults to ~/websites/[domain]',
-    ),
-    'examples' => array(
-      'Simplest format' => 'drush bd --domain=example.dev',
-      'Complete format' => 'drush buck-destroy all --domain=example.dev --codepath=/path/to/drupal',
-      'Remove DNS (/etc/hosts)' => 'drush buck-destroy dns --domain=example.dev',
-      'Remove Apache (/etc/apache2/sites-enabled/)' => 'drush buck-destroy apache --domain=example.dev',
-      'Drop Database (mysql db and user)' => 'drush buck-destroy database --domain=example.dev',
-      'Delete code and files (~/webistes/<domain>)' => 'drush buck-destroy code --domain=example.dev --codepath=/path/to/drupal',
-      'Reset for reinstall (~/webistes/<domain>)' => 'drush buck-destroy install --domain=example.dev --codepath=/path/to/drupal',
+      'drush alias' => 'Required. Drush alias for site, aka @mysite.local.',
     ),
     'aliases' => array('bd'),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUSH, // No bootstrap at all.
   );
-
   $items['buck-fixperms'] = array(
           'description' => "Fix permissions for a buck development website:
   \$ sudo chown -R buck:www-data <codepath>
@@ -201,7 +153,7 @@ function _buck_required_params($command) {
       'uri',
       'root',
     ),
-    'create' => array(
+    'buck' => array(
       'database',
       'db-url',
       'root',
@@ -226,18 +178,23 @@ function _buck_required_params($command) {
 function _buck_check_params($site_record, $required) {
   $ret = array();
 
+  // Should use drush_set_option() for these:
   $domain = str_replace('/', '', $site_record['uri']);
   $database = str_replace(array('.', '-'), '_', $domain);
-  $defaults['dbuser'] = '';
+  // DB username
+  $defaults['username'] = 'root';
   $defaults['dbpassword'] = '';
   $defaults['database'] = $database;
   $defaults['profile'] = 'standard';
   $defaults['db-prefix'] = '';
+  $defaults['db-su'] = 'root';
+  $defaults['db-su-pw'] = '';
   $defaults['account-name'] = 'admin';
   $defaults['account-pass'] = 'admin';
   $defaults['account-mail'] = 'admin@'. $domain;
   $defaults['locale'] = 'en';
   $defaults['clean-url'] = '1';
+  $defaults['driver'] = 'mysql';
   $defaults['site-name'] = $domain;
   $defaults['site-mail'] = 'info@'. $domain;
   $defaults['sites-subdir'] = 'default';
@@ -264,7 +221,7 @@ function _buck_check_params($site_record, $required) {
     if (empty($site_record[$require])) {
       $site_record['fail'] = true;
       drush_log("  '--$require' is a required option for this command.", 'error');
-      die();
+      drush_user_abort();
     }
   }
   return $site_record;
@@ -335,10 +292,11 @@ function drush_buck_update($environment = NULL) {
   drush_log("Command completed successfully.", "success");
   return true;
 }
+
 /**
- * Drush callbackfunction for 'drush buck-create'.
+ * Drush callbackfunction for 'drush buck'.
  *
- * This function goes step-by-step in creating the new site.
+ * This function goes step-by-step in creating or updating the new site.
  *
  * @return true on success
  */
@@ -386,8 +344,11 @@ function drush_buck($environment = NULL) {
     }
     // This is a normal site with non-local code, database, and media files.
     else {
-      buck_create_root($site_record);
-      buck_fetch_git($site_record);
+      //buck_create_root($site_record);
+      //buck_fetch_git($site_record);
+      //buck_sync_files($site_record);
+      buck_sync_database($site_record);
+      die();
     //  buck_get_files($site_record);
       //buck_import_database($site_record);
     }
@@ -462,17 +423,7 @@ function drush_buck_destroy() {
  *
  * @reurn true on success
  */
-function drush_buck_fetch($environment = NULL) {
-  $prepared = buck_env_prepare($environment, 'fetch');
-  call_user_func('buck_fetch_' . $prepared['command'], $prepared['site_record']); 
-}
-
-/**
- * Drush callbackfunction for 'drush buck-command-create'.
- *
- * @reurn true on success
- */
-function drush_buck_command_create($environment = NULL) {
+function drush_buck_command($environment = NULL) {
   $prepared = buck_env_prepare($environment, 'command_create');
   call_user_func('buck_create_' . $prepared['command'], $prepared['site_record']); 
 }
@@ -487,7 +438,11 @@ function drush_buck_command_destroy($environment = NULL) {
   call_user_func('buck_destroy_' . $prepared['command'], $prepared['site_record']); 
 }
 
-function buck_env_prepare($environment, $command) {
+/**
+ * Gets alias info and overwrites with added options.
+ * Checks that alias exists and enough info is supplied.
+ */
+function buck_env_prepare($environment) {
   // Get alias information.
   $env = buck_get_env($environment);
 
@@ -496,23 +451,26 @@ function buck_env_prepare($environment, $command) {
   // Get actual arguments.
   $args = drush_get_arguments();
   // Grab command from arguments.
-  $args = count($args) > 1 ? array_pop($args) : $args;
+  $buck_command = array_shift($args);
+  // Get options.
+  $options = drush_get_context('cli');
+  // Add sync-source to options if supplied.
+  if (count($args > 1) && drush_sitealias_get_record($args[1])) {
+    $options['sync-source'] = $args[1];
+  }
 
   /**
-  // This is a hoky way of dealing with the buck-create-command taking an extra argument.
-  if ($command == $environment && $env && $env['#name'] != '@self') {
-    $command = $commands[0];
-  }
-  else {
-    if (!in_array($command, $cmds)) {
-      drush_set_error(0, dt('Command %command not found. See drush help buck-command.', array('%command' => $command)));
-      die();
-    }
-  }
+  drush_print_r('options: ');
+  drush_print_r($options);
+  drush_print_r('args: ');
+  drush_print_r($args);
+  drush_print_r('env: ');
+  drush_print_r($env);
+  drush_print_r('command: ');
+  drush_print_r($buck_command);
    */
 
-  $options = drush_get_context('cli');
-
+  // Options can override alias info.
   if ($env) {
     $site_record = array_merge($options, $env);
   }
@@ -520,11 +478,11 @@ function buck_env_prepare($environment, $command) {
     $site_record = $options;
   }
 
-  $required = _buck_required_params($command);
+  $required = _buck_required_params($buck_command);
 
   $site_record = _buck_check_params($site_record, $required);
 
   $prepared['site_record'] = $site_record;
-  $prepared['command'] = $command;
+  $prepared['command'] = $buck_command;
   return $prepared;
 }
