@@ -332,8 +332,6 @@ function drush_buck($environment = NULL) {
           buck_fetch_git_profile($site_record);
           buck_site_install_profile($site_record);
         }
-        else {
-        }
       }
       else {
         // 3) create from scratch

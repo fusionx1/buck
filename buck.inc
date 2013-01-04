@@ -268,21 +268,22 @@ function buck_destroy_root($site_record) {
  * Finished product is a profile that is version controlled by git.
  */
 function buck_fetch_git_profile($site_record) {
-  $site_record['webroot'] = $site_record['webroot'] . '/profiles/' . $site_record['profile'];
+  $profile_dir = $site_record['webroot'] . '/profiles/' . $site_record['profile'];
 
   // Move profile into temp directory.
   $tmp_dir = drush_tempdir();
-  drush_move_dir($site_record['webroot'], $tmp_dir, TRUE);
+  drush_move_dir($profile_dir, $tmp_dir, TRUE);
+  drush_mkdir($profile_dir);
 
   // Install git profile.
   $branch = isset($site_record['git']['branch']) ? '--branch ' . $site_record['git']['branch'] : '';
-  $command = 'git clone ' . $branch . $site_record['git']['url'] . ' ' . $site_record['webroot'];
-  drush_log('Downloading code to ' . $site_record['webroot'] . ' (takes a minute, check network activity) ...', 'ok');
+  $command = 'git clone ' . $branch . ' ' . $site_record['git']['url'] . ' ' . $profile_dir;
+  drush_log('Downloading profile code to ' . $profile_dir . ' (takes a minute, check network activity) ...', 'ok');
   buck_shell_exec($command);
   drush_log("... done", "ok");
 
   // Move folders created during make back into profile.
-  $git_ignore = $site_record['webroot'] . '/.gitignore';
+  $git_ignore = $profile_dir . '/.gitignore';
   if (file_exists($git_ignore)) {
     $profile_ignored = file($git_ignore);
 
@@ -386,8 +387,7 @@ function buck_site_install_make($site_record) {
       '@self',
       'make',
       array($site_record['makefile'], $site_record['webroot']),
-      array('--prepare-install'),
-      array('#integrate' => TRUE)
+      array('--prepare-install')
     );
   }
 }
