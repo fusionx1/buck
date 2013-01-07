@@ -1,16 +1,62 @@
 <?php
 /**
+ * @file
  * This is an include file.  These are the "callback" functions that drush
  * uses to get the job done.  See buck.drush.inc for the definition of
  * the commands.
- *
- * Example make file for d7 http://drupal.org/node/852412
- *
- * site-install issues:
- *  - http://drupal.org/node/992928 - Drupal Core
- *  - http://drupal.org/node/983914 - Drush
- * @file
  */
+
+/**
+ * This is the virtual hosts template file for the apache functions.
+ */
+define('BUCK_APACHE_TEMPLATE', "
+<Directory #CODEPATH#>
+  Options FollowSymLinks
+  AllowOverride None
+
+  RewriteEngine On
+  RewriteBase /
+
+  # Rewrite URLs of the form 'index.php?q=x'.
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(.*)$ index.php?q=$1 [L,QSA]
+</Directory>
+
+<VirtualHost *:80>
+  ServerName #DOMAIN#
+  DocumentRoot #CODEPATH#
+  LogLevel warn
+  ServerSignature Off
+</VirtualHost>
+");
+
+/**
+ * This is the virtual hosts template file for settings.php file.
+ */
+define('BUCK_SETTINGS_PHP_TEMPLATE', "
+<?php
+\$databases = array (
+  'default' =>
+  array (
+    'default' =>
+    array (
+      'database' => '#DATABASE#',
+      'username' => '#USERNAME#',
+      'password' => '#PASSWORD#',
+      'host' => 'localhost',
+      'port' => '',
+      'driver' => 'mysql',
+      'prefix' => '',
+    ),
+  ),
+);
+\$base_url = '#URL#';
+ini_set('session.gc_probability', 1);
+ini_set('session.gc_divisor', 100);
+ini_set('session.gc_maxlifetime', 200000);
+ini_set('session.cookie_lifetime', 2000000);
+");
 
 /**
  * Helper function for executing shell commands.  Throws exceptions on error.
@@ -89,62 +135,7 @@ function buck_destroy_dns($site_record) {
 }
 
 /**
- * This is the virtual hosts template file for the apache functions.
- */
-define('BUCK_APACHE_TEMPLATE', "
-<Directory #CODEPATH#>
-  Options FollowSymLinks
-  AllowOverride None
-
-  RewriteEngine On
-  RewriteBase /
-
-  # Rewrite URLs of the form 'index.php?q=x'.
-  RewriteCond %{REQUEST_FILENAME} !-f
-  RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule ^(.*)$ index.php?q=$1 [L,QSA]
-</Directory>
-
-<VirtualHost *:80>
-  ServerName #DOMAIN#
-  DocumentRoot #CODEPATH#
-  LogLevel warn
-  ServerSignature Off
-</VirtualHost>
-");
-
-/**
- * This is the virtual hosts template file for settings.php file.
- */
-define('BUCK_SETTINGS_PHP_TEMPLATE', "
-$databases = array (
-  'default' => 
-  array (
-    'default' => 
-    array (
-      'database' => '#DATABASE#',
-      'username' => '#USERNAME',
-      'password' => '#PASSWORD#',
-      'host' => 'localhost',
-      'port' => '',
-      'driver' => 'mysql',
-      'prefix' => '',
-    ),
-  ),
-);
-$base_url = '#URL#';
-ini_set('session.gc_probability', 1);
-ini_set('session.gc_divisor', 100);
-ini_set('session.gc_maxlifetime', 200000);
-ini_set('session.cookie_lifetime', 2000000);
-");
-
-/**
  * Configure apache virtualhost file using the template.
- * Files put in /etc/apache2/sites-available/$domain, then a2ensite'd
- *
- * @param <type> $domain
- * @param <type> $params 'codepath'
  */
 function buck_create_webserver_config($site_record) {
   $domain = $site_record['uri'];
@@ -174,10 +165,6 @@ function buck_create_webserver_config($site_record) {
 
 /**
  * Destroy the apache virtual hosts config. a2dissite, then rm file.
- * Runs: apache2ctl restart
- *
- * @param <type> $domain
- * @param <type> $params
  */
 function buck_destroy_webserver_config($site_record) {
   $domain = $site_record['uri'];
@@ -189,34 +176,6 @@ function buck_destroy_webserver_config($site_record) {
 }
 
 /**
- * Create the database.  Runs SQL.  Replaces .'s with _'s in domain name
- * to get the database name, database username, and password.
- *
- * @param <type> $domain
- * @param <type> $params
- */
-function buck_create_database($site_record) {
-
-  $db_spec['database'] = $site_record['database'];
-  // FIX
-  $db_spec['host'] = 'localhost';
-  // Only supported driver. 
-  $db_spec['driver'] = 'mysql';
-
-  if (drush_sql_db_exists($db_spec)) {
-    if (!drush_confirm(dt('Database ' .  $db_spec['database'] . ' already exists. Do you want to erase its contents?'))) {
-      return drush_set_error(0, dt('You did not wish to overwrite the databases. Aborting.'));
-    }
-   // _drush_sql_drop($db_spec);
-  }
-  else {
-    $db_spec['username'] = $site_record['database'];
-    $db_spec['password'] = $site_record['dbpassword'] ? $site_record['dbpassword'] : buck_generate_password();
-    _drush_sql_create($db_spec);
-  }
-}
-
-/**
  * Destroys the database using SQL.
  */
 function buck_destroy_database($site_record) {
@@ -225,13 +184,13 @@ function buck_destroy_database($site_record) {
 }
 
 function buck_create_root($site_record) {
-  $codepath = $site_record['root'];
+  $codepath = $site_record['webroot'];
   $tar_file = $site_record['database'] . '-' . date('y-m-d-h') . '.tar.gz';
-  $tar_dir = '/var/www/' . trim(strrchr($site_record['root'], '/'), '/');
+  $tar_dir = '/var/www/' . trim(strrchr($site_record['webroot'], '/'), '/');
 
   // Create or make sure webroot installed.
   if (file_exists($codepath)) {
-    if (!drush_confirm(dt('Folder ' . $site_record['root'] . ' already exists. Do you want to remove it?'))) {
+    if (!drush_confirm(dt('Folder ' . $site_record['webroot'] . ' already exists. Do you want to remove it?'))) {
       return;
     }
     if (file_exists($oldpath)) {
@@ -268,7 +227,7 @@ function buck_destroy_root($site_record) {
  * Finished product is a profile that is version controlled by git.
  */
 function buck_fetch_git_profile($site_record) {
-  $profile_dir = $site_record['webroot'] . '/profiles/' . $site_record['profile'];
+  $profile_dir = $site_record['root'] . '/profiles/' . $site_record['profile'];
 
   // Move profile into temp directory.
   $tmp_dir = drush_tempdir();
@@ -289,7 +248,7 @@ function buck_fetch_git_profile($site_record) {
 
     foreach ($profile_ignored as $dir) {
       $ignore_dir = $tmp_dir . "/" . trim($dir);
-      drush_move_dir($ignore_dir, $site_record['webroot'] . '/' . trim($dir), TRUE);
+      drush_move_dir($ignore_dir, $profile_dir . '/' . trim($dir), TRUE);
     }
   }
   else {
@@ -322,16 +281,15 @@ function buck_sync_files($site_record) {
 function buck_fetch_git($site_record) {
   // Install git.
   if (isset($site_record['git'])) {
-    if (file_exists($site_record['webroot'] . '/.git')) {
-      drush_log('Git repo at ' . $site_record['webroot'] . '/.git already exists. Updating...', 'ok');
-      drush_shell_cd_and_exec($site_record['webroot'], 'git pull --rebase');
+    if (file_exists($site_record['root'] . '/.git')) {
+      drush_log('Git repo at ' . $site_record['root'] . '/.git already exists. Updating...', 'ok');
+      drush_shell_cd_and_exec($site_record['root'], 'git pull --rebase');
       return ;
     }
 
     $branch = isset($site_record['git']['branch']) ? '--branch ' . $site_record['git']['branch'] : '';
-    $command = 'git clone ' . $branch . ' ' . $site_record['git']['url'] . ' ' . $site_record['webroot'];
-    drush_print_r($command);
-    drush_log('Downloading code to ' . $site_record['webroot'] . ' (takes a minute, check network activity) ...', 'ok');
+    $command = 'git clone ' . $branch . ' ' . $site_record['git']['url'] . ' ' . $site_record['root'];
+    drush_log('Downloading code to ' . $site_record['broot'] . ' (takes a minute, check network activity) ...', 'ok');
     if (!system($command)) {
       return drush_set_error('DRUSH_PM_GIT_CHECKOUT_PROBLEMS', dt('Unable to clone project.'));
     }
@@ -342,20 +300,18 @@ function buck_fetch_git($site_record) {
   }
 }
 
+/**
+ * Installs site using profile.
+ */
 function buck_site_install_profile($site_record) {
   drush_log('Installing ' . $site_record['profile'] . ' ...', 'ok');
 
+  $db_pass = drush_generate_password();
   $opts = array(
-    "--root=" . $site_record['webroot'],
-    // TODO: get root user and pass.
-    "--db-url=" . 'mysql://root:@localhost/' . $site_record['database'],
-    #"--db-prefix=" . $params['db-prefix'],
-    "--account-name=admin",
-    "--account-pass=admin",
+    "--root=" . $site_record['root'],
+    "--db-url=" . 'mysql://' . $site_record['#name'] . ':' . $db_pass . '@localhost/' . $site_record['database'],
     "-v",
-    #"--site-name=" . $params['site-name'],
-    #"--site-mail=" . $params['site-mail'],
-    #"--sites-subdir=" . $params['sites-subdir'],
+    "--site-name=" . $site_record['site-name'],
   );
 
   drush_invoke_process(
@@ -368,6 +324,9 @@ function buck_site_install_profile($site_record) {
   drush_log("... done", "ok");
 }
 
+/**
+ * Makes site via make file.
+ */
 function buck_site_install_make($site_record) {
   if (isset($site_record['makefile'])) {
 
@@ -393,49 +352,57 @@ function buck_site_install_make($site_record) {
 }
 
 /**
- *
+ * Syncs your database from a remote database.
  */
 function buck_sync_database($site_record) {
   // TODO: Add hook for hosts like pantheon that don't support drush sql-sync.
 
   // If there is no local database, need to create one and add it to settings.php
-  if (drush_sql_db_exists($site_record)) {
-    die('now');
+  if (!drush_sql_db_exists($site_record) || !file_exists($site_record['root'] . '/sites/default/settings.php')) {
     // Create database.
     $db_pass = drush_generate_password();
-    $db_url = 'mysql://' . $site_record['database'] . ':' . $db_pass  . '@127.0.0.1/' . $site_record['database'];
+    $db_url = 'mysql://' . $site_record['database'] . ':' . $db_pass  . '@localhost/' . $site_record['database'];
+
+    $user = posix_getpwuid(posix_geteuid());
+    $db_super = parse_ini_file($user['dir'] . '/.my.cnf');
+    if (!$db_super['user']) {
+      drush_set_error("Your .my.cnf file is not setup correctly.");
+      die();
+    }
     drush_invoke_process(
       '@self',
       'sql-create',
       array("@" . $site_record['sync-source'], "@" . $site_record['#name']),
-      array('--db-url=' . $db_url),
+      array('--db-url=' . $db_url, '--db-su=' . $db_super['user'], '--db-su-pw=' . $db_super['password']),
       array('interactive' => TRUE)
     );
 
     // Add settings.php
-    $str_config = BUCK_APACHE_TEMPLATE;
+    $str_config = BUCK_SETTINGS_PHP_TEMPLATE;
     $str_config = str_replace("#DATABASE#", $site_record['database'], $str_config);
     $str_config = str_replace("#USERNAME#", $site_record['database'], $str_config);
     $str_config = str_replace("#PASSWORD#", $db_pass, $str_config);
+    $str_config = str_replace("#URL#", 'http://' . $site_record['uri'], $str_config);
 
-    $config_handle = fopen($site_record['root'] . "sites/default/settings.php", "w+");
+    $config_handle = fopen($site_record['root'] . "/sites/default/settings.php", "w+");
     fwrite($config_handle, $str_config);
   }
-  die('then');
-  // 3) if so
   drush_invoke_process(
     '@self',
     'sql-sync',
     array("@" . $site_record['sync-source'], "@" . $site_record['#name']),
-    array(),
+    array('--target-databsae=' . $site_record['database'],  '--db-su=' . $db_super['user'], '--db-su-pw=' . $db_super['password']),
     array('interactive' => TRUE)
   );
 }
 
+/**
+ * TODO: FIX!
+ */
 function drush_buck_permissions_cleanup($site_record) {
 
   $domain = $site_record['domain'];
-  $root = $site_record['webroot'];
+  $root = $site_record['root'];
   drush_invoke_process(
     '@self',
     'buck-fixperms',
@@ -447,17 +414,9 @@ function drush_buck_permissions_cleanup($site_record) {
 
 /**
  * Deletes the sites files using rm -rf.  Also path.old.
- *
- * @param <type> $domain
- * @param <type> $params 'codepath'
  */
-function buck_destroy_code($domain, $params) {
-  $codepath = $params['codepath'];
-  // only delete a web folder.  "drush qd --codepath=/" would be bad.
-  if (!file_exists($codepath . '/index.php')) {
-      drush_log('No index.php found.  Aborting deletion of files...', 'warning');
-      return;
-  }
+function buck_destroy_code($site_record) {
+  $codepath = $site_record['webroot'];
   buck_shell_exec("sudo rm -rf $codepath");
 }
 
@@ -555,32 +514,6 @@ function buck_create_install($domain, $params) {
   drush_log("\nURL:  http://".$params['domain']."\nAdmin user:  ".$params['account-name']."\nAdmin password: ".$params['account-pass'], 'ok');
 }
 
-/**
- * Return site to situation where "drush qc install --domain=site.dev" could
- * be re-run successfully.
- *
- * @param <type> $domain
- * @param <type> $params 'codepath'
- */
-function buck_destroy_install($domain, $params) {
-  // only delete a web folder.  "drush qd --codepath=/" would be bad.
-  $codepath = $params['codepath'];
-  if (!file_exists($codepath . '/index.php')) {
-      drush_log('No index.php found.  Aborting un-install of site...', 'warning');
-      return;
-  }
-
-  // drop and create database and user.
-  buck_destroy_database($domain, $params);
-  buck_create_database($domain, $params);
-
-  // delete settings.php file
-  buck_shell_exec("sudo rm -f $codepath/sites/all/default/settings.php");
-
-  // delete files folder
-  buck_shell_exec("sudo rm -rf $codepath/sites/all/default/files");
-}
-
 function buck_get_env($environment) {
   if (!$environment) {
     return drush_set_error(dt('You must specify a drush alias with the buck command.'));
@@ -594,13 +527,13 @@ function buck_get_env($environment) {
     }
   }
 
-  // TODO: check if this works.
-  //_drush_sitealias_add_inherited_values($env);
-
   return $env;
 }
 
-function buck_generate_password($length = 10){
+/**
+ * Get the password of your dreams.
+ */
+function buck_generate_password($length = 10) {
   $chars =  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'.
             '0123456789``-=~!@#$%^&*()_+,.<>?;:[]{}\|';
 

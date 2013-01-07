@@ -48,15 +48,6 @@ function buck_drush_command() {
     'aliases' => array('bf'),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
   );
-  $items['buck-update'] = array(
-    'description' => "Update the code, db and files of site.",
-    'arguments' => array(
-      'drush alias' => 'Required. Drush alias for site, aka @mysite.local.',
-      'sync alias' => 'Optional. Drush alias for site we are syncing from. Defaults to sync-source in drush alias. Aka @mysite.dev.',
-    ),
-    'aliases' => array('bu'),
-    'bootstrap' => DRUSH_BOOTSTRAP_DRUSH,
-  );
   $items['buck-command'] = array(
     'description' => "Create a buck dev element (" . implode(', ', _buck_create_destroy_arg_list()) . ").",
     'arguments' => array(
@@ -185,6 +176,7 @@ function _buck_check_params($site_record, $required) {
   $defaults['username'] = 'root';
   $defaults['dbpassword'] = '';
   $defaults['database'] = $database;
+  $defaults['target-database'] = $database;
   $defaults['profile'] = 'standard';
   $defaults['db-prefix'] = '';
   $defaults['db-su'] = 'root';
@@ -198,7 +190,7 @@ function _buck_check_params($site_record, $required) {
   $defaults['site-name'] = $domain;
   $defaults['site-mail'] = 'info@'. $domain;
   $defaults['sites-subdir'] = 'default';
-  $defaults['webroot'] = $site_record['root'] . '/' . BUCK_WEBROOT;
+  $defaults['webroot'] =  preg_replace('/' . BUCK_WEBROOT  . '$/', '', $site_record['root']);
 
   // Merge it all together - 2nd array overwrites first.
   $ret = array_merge($ret, $defaults);
@@ -224,6 +216,7 @@ function _buck_check_params($site_record, $required) {
       drush_user_abort();
     }
   }
+  drush_set_option('@' . $site_record['#name'], $site_record, 'site-aliases');
   return $site_record;
 }
 
@@ -246,51 +239,6 @@ function drush_buck_fixperms() {
   // find directories named "files" and run chmod on them.
   buck_shell_exec("sudo find $codepath/sites -type d -name files -exec chmod -R a=,ug=rwX '{}' \;");  
   buck_shell_exec("sudo find $codepath/sites -type d -name files_private -exec chmod -R a=,ug=rwX '{}' \;");  
-}
-
-/**
- * Drush callbackfunction for 'drush buck-create'.
- *
- * This function goes step-by-step in creating the new site.
- *
- * @return true on success
- */
-function drush_buck_update($environment = NULL) {
-
-  $prepared = buck_env_prepare($environment, 'create');
-
-  $site_record = $prepared['site_record'];
-
-  try {
-    // This is a site install from a makefile. Site is installed through make.
-    if (isset($site_record['makefile'])) {
-      // In this case the site is created first, then the git repo is installed.
-      // Buck update git.
-    }
-    // This is an installation profile. It requires code and a site install.
-    elseif (isset($site_record['profile'])) {
-      buck_create_root($site_record);
-      buck_fetch_git($site_record);
-      buck_site_install_profile($site_record);
-    }
-    // This is a normal site with non-local code, database, and media files.
-    else {
-      buck_create_root($site_record);
-      buck_fetch_git($site_record);
-    //  buck_get_files($site_record);
-      //buck_import_database($site_record);
-    }
-
-    // Cleanup
-
-  } catch (Exception $e) {
-    $message = $e->getMessage();
-    drush_log("Command failed: $message", "error");
-    return false;
-  }
-
-  drush_log("Command completed successfully.", "success");
-  return true;
 }
 
 /**
@@ -342,13 +290,10 @@ function drush_buck($environment = NULL) {
     }
     // This is a normal site with non-local code, database, and media files.
     else {
-      //buck_create_root($site_record);
-      //buck_fetch_git($site_record);
-      //buck_sync_files($site_record);
+      buck_create_root($site_record);
+      buck_fetch_git($site_record);
+      buck_sync_files($site_record);
       buck_sync_database($site_record);
-      die();
-    //  buck_get_files($site_record);
-      //buck_import_database($site_record);
     }
     // Add vhost.
     buck_create_webserver_config($site_record);
