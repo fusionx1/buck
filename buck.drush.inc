@@ -171,7 +171,7 @@ function _buck_check_params($site_record, $required) {
 
   // Should use drush_set_option() for these:
   $domain = str_replace('/', '', $site_record['uri']);
-  $database = str_replace(array('.', '-'), '_', $domain);
+  $database = str_replace(array('.', '-'), '_', $site_record['#name']);
   // DB username
   $defaults['username'] = 'root';
   $defaults['dbpassword'] = '';

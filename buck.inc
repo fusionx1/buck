@@ -195,7 +195,7 @@ function buck_create_root($site_record) {
     }
     if (file_exists($oldpath)) {
       drush_log("Removing existing directory $oldpath", "ok");
-      drush_shell_exec("sudo rm -rf $oldpath");
+      drush_shell_exec("rm -rf $oldpath");
       drush_log("... done", "ok");
     }
     drush_log("Archiving existing directory $codepath to $tar_file", "ok");
@@ -417,7 +417,7 @@ function drush_buck_permissions_cleanup($site_record) {
  */
 function buck_destroy_code($site_record) {
   $codepath = $site_record['webroot'];
-  buck_shell_exec("sudo rm -rf $codepath");
+  buck_shell_exec("rm -rf $codepath");
 }
 
 /**
@@ -493,7 +493,7 @@ function buck_create_install($domain, $params) {
   if ($dversion=='d7') {
     // Create a private files folder.  This is done to make fix-perms not break configuring a private files directory
     if (!file_exists($codepath . '/sites/default/files_private')) {
-      buck_shell_exec("sudo mkdir $codepath/sites/default/files_private");
+      buck_shell_exec("mkdir $codepath/sites/default/files_private");
     }
     drush_invoke_process(
       drush_sitealias_get_record('@self'),
