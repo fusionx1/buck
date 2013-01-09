@@ -222,6 +222,41 @@ function buck_destroy_root($site_record) {
 }
 
 /**
+ * Updates existing profile managed by git.
+ */
+function buck_update_git_profile($site_record) {
+  $profile_dir = $site_record['root'] . '/profiles/' . $site_record['profile'];
+
+  $command = 'git pull --rebase';
+  drush_shell_cd_and_exec($site_record['root'], 'git pull --rebase');
+
+  $git_ignore = $profile_dir . '/.gitignore';
+  if (file_exists($git_ignore)) {
+    $profile_ignored = file($git_ignore);
+
+    foreach ($profile_ignored as $dir) {
+      drush_delete_dir(trim($dir));
+    }
+  }
+  else {
+    return drush_set_error('DRUSH_PM_GIT_CHECKOUT_PROBLEMS', dt('Could not find .gitignore file.'));
+  }
+  $tmp_dir = drush_tempdir();
+  $make = drush_invoke_process(
+    '@self',
+    'make',
+    array($site_record['makefile'], $tmp_dir),
+    array('--no-core')
+  );
+  $profile_ignored = file($git_ignore);
+
+  foreach ($profile_ignored as $dir) {
+    $ignore_dir = $tmp_dir . "/" . trim($dir);
+    drush_move_dir($ignore_dir, $profile_dir . '/' . trim($dir), TRUE);
+  }
+}
+
+/**
  * Moves existing profile to temp directory, installs git version, moves all
  * ignored folders back to profile.
  * Finished product is a profile that is version controlled by git.
@@ -252,9 +287,6 @@ function buck_fetch_git_profile($site_record) {
     }
   }
   else {
-    if (drush_confirm(dt('Do you want ignore?'))) {
-      drush_print_r($git_ignore);
-    }
     return drush_set_error('DRUSH_PM_GIT_CHECKOUT_PROBLEMS', dt('Could not find .gitignore file.'));
   }
 
@@ -301,16 +333,42 @@ function buck_fetch_git($site_record) {
 }
 
 /**
+ * Re-installs site using profile.
+ */
+function buck_update_install_profile($site_record) {
+  $opts = array(
+    "--account-name=" . $site_record['account-name'],
+    "--account-pass=" . $site_record['account-pass'],
+    "--site-name=" . $site_record['site-name'],
+  );
+  drush_invoke_process(
+    drush_sitealias_get_record('@self'),
+    'site-install',
+    array($site_record['profile']),
+    array($opts),
+    array('#integrate' => TRUE)
+  );
+}
+
+/**
  * Installs site using profile.
  */
 function buck_site_install_profile($site_record) {
   drush_log('Installing ' . $site_record['profile'] . ' ...', 'ok');
 
   $db_pass = drush_generate_password();
+  $user = posix_getpwuid(posix_geteuid());
+  $db_super = parse_ini_file($user['dir'] . '/.my.cnf');
+  if (!$db_super['user']) {
+    drush_set_error("Your .my.cnf file is not setup correctly.");
+    die();
+  }
   $opts = array(
     "--root=" . $site_record['root'],
     "--db-url=" . 'mysql://' . $site_record['#name'] . ':' . $db_pass . '@localhost/' . $site_record['database'],
     "-v",
+    "--db-su=" . $db_super['user'],
+    "--db-su-pw=" . $db_super['password'],
     "--site-name=" . $site_record['site-name'],
   );
 
@@ -330,13 +388,16 @@ function buck_site_install_profile($site_record) {
 function buck_site_install_make($site_record) {
   if (isset($site_record['makefile'])) {
 
-    if (file_exists($site_record['root'])) {
-      if (drush_confirm(dt($site_record['root'] . ' already exist, do you want to remove it?'))) {
-        buck_destroy_root($site_record);
-      }
-      elseif (drush_confirm(dt('Do you want to update it?'))) {
-        // TODO: Run update.
-      }
+    if (file_exists($site_record['profile'])) {
+      $make = drush_invoke_process(
+        '@self',
+        'make',
+        array($site_record['makefile'], $site_record['root']),
+        array('--no-core')
+      );
+    }
+    else {
+      buck_create_root($site_record);
     }
 
     // TODO: check url.
@@ -345,7 +406,7 @@ function buck_site_install_make($site_record) {
     $make = drush_invoke_process(
       '@self',
       'make',
-      array($site_record['makefile'], $site_record['webroot']),
+      array($site_record['makefile'], $site_record['root']),
       array('--prepare-install')
     );
   }

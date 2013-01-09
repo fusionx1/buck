@@ -259,27 +259,12 @@ function drush_buck($environment = NULL) {
     // This is a site install from a makefile. Site is installed through make.
     if (isset($site_record['makefile'])) {
       // 1) if folder exists
-      if (file_exists($site_record['root'])) {
-        // 2) update 
+      if (file_exists($site_record['webroot'])) {
+        // 2) update
         // 2a) do you want to start from scratch?
-        if (drush_confirm(dt('Base directory: ' . $site_record['root'] . 'already exits. Do you want to remove it?'))) {
-          // 2b) remove and archive
-          $codepath = $site_record['root'];
-          $oldpath = $site_record['root'] . '.old';
-
-          if (file_exists($oldpath)) {
-            drush_log("Removing existing directory $oldpath", "ok");
-            drush_shell_exec("sudo rm -rf $oldpath");
-            drush_log("... done", "ok");
-          }
-          drush_log("Moving existing directory $codepath to $oldpath", "ok");
-          buck_shell_exec("mv $codepath $oldpath");
-          drush_log("... done", "ok");
-          // 3) create from scratch
-          buck_site_install_make($site_record);
-          buck_fetch_git_profile($site_record);
-          buck_site_install_profile($site_record);
-        }
+        // 3) create from scratch
+        buck_update_git_profile($site_record);
+        buck_update_install_profile($site_record);
       }
       else {
         // 3) create from scratch
