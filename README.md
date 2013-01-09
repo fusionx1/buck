@@ -8,19 +8,19 @@ Commands
 
 Create or update site:
 
-drush buck @mysite
+```drush buck @mysite```
 
 Creates or updates webroot, code, virtual host, /etc/hosts, database and files. It detects if an installation already exists and creates it if it doesn't and updates it if it does. Also fixes permisisons where needed.
 
 Create or update site element:
 
-drush buck-command [command] @mysite
+```drush buck-command [command] @mysite```
 
 Commands include webserver_config, hosts, databaset, code, and files.
 
 Destory site:
 
-drush buck destroy @mysite
+```drush buck destroy @mysite```
 
 Types of Sites
 --------------
