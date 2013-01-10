@@ -369,6 +369,8 @@ function buck_site_install_profile($site_record) {
     "-v",
     "--db-su=" . $db_super['user'],
     "--db-su-pw=" . $db_super['password'],
+    "--account-name=" . $site_record['account-name'],
+    "--account-pass=" . $site_record['account-pass'],
     "--site-name=" . $site_record['site-name'],
   );
 
