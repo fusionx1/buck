@@ -261,8 +261,6 @@ function drush_buck($environment = NULL) {
       // 1) if folder exists
       if (file_exists($site_record['webroot'])) {
         // 2) update
-        // 2a) do you want to start from scratch?
-        // 3) create from scratch
         buck_update_git_profile($site_record);
         buck_update_install_profile($site_record);
       }
@@ -386,17 +384,6 @@ function buck_env_prepare($environment) {
   if (count($args > 1) && drush_sitealias_get_record($args[1])) {
     $options['sync-source'] = $args[1];
   }
-
-  /**
-  drush_print_r('options: ');
-  drush_print_r($options);
-  drush_print_r('args: ');
-  drush_print_r($args);
-  drush_print_r('env: ');
-  drush_print_r($env);
-  drush_print_r('command: ');
-  drush_print_r($buck_command);
-   */
 
   // Options can override alias info.
   if ($env) {

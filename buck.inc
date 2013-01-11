@@ -150,7 +150,7 @@ function buck_create_webserver_config($site_record) {
   drush_log("Creating apache config (/etc/apache2/sites-enabled/$domain)", 'ok');
 
   $str_config = str_replace("#DOMAIN#", $domain, $str_config);
-  $str_config = str_replace("#CODEPATH#", $site_record['webroot'], $str_config);
+  $str_config = str_replace("#CODEPATH#", $site_record['root'], $str_config);
 
   $config_handle = fopen("/etc/apache2/sites-available/$domain", "w+");
   fwrite($config_handle, $str_config);
@@ -235,23 +235,22 @@ function buck_update_git_profile($site_record) {
     $profile_ignored = file($git_ignore);
 
     foreach ($profile_ignored as $dir) {
-      drush_delete_dir(trim($dir));
+      drush_delete_dir($profile_dir . '/' . trim($dir));
     }
   }
   else {
     return drush_set_error('DRUSH_PM_GIT_CHECKOUT_PROBLEMS', dt('Could not find .gitignore file.'));
   }
-  $tmp_dir = drush_tempdir();
+  $tmp_dir = drush_tempdir() . '/' . $site_record['profile'];
   $make = drush_invoke_process(
     '@self',
     'make',
     array($site_record['makefile'], $tmp_dir),
     array('--no-core')
   );
-  $profile_ignored = file($git_ignore);
 
   foreach ($profile_ignored as $dir) {
-    $ignore_dir = $tmp_dir . "/" . trim($dir);
+    $ignore_dir = $tmp_dir . "/profiles/" . $site_record['profile'] . '/' . trim($dir);
     drush_move_dir($ignore_dir, $profile_dir . '/' . trim($dir), TRUE);
   }
 }
@@ -336,13 +335,22 @@ function buck_fetch_git($site_record) {
  * Re-installs site using profile.
  */
 function buck_update_install_profile($site_record) {
+  // TODO: Need to check settings.php files.
+  $user = posix_getpwuid(posix_geteuid());
+  $db_super = parse_ini_file($user['dir'] . '/.my.cnf');
+  if (!$db_super['user']) {
+    drush_set_error("Your .my.cnf file is not setup correctly.");
+    die();
+  }
   $opts = array(
     "--account-name=" . $site_record['account-name'],
     "--account-pass=" . $site_record['account-pass'],
     "--site-name=" . $site_record['site-name'],
+    "--db-su=" . $db_super['user'],
+    "--db-su-pw=" . $db_super['password'],
   );
   drush_invoke_process(
-    drush_sitealias_get_record('@self'),
+    drush_sitealias_get_record('@' . $site_record['#name']),
     'site-install',
     array($site_record['profile']),
     array($opts),
